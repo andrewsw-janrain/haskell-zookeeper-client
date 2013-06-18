@@ -11,9 +11,9 @@ Cabal-Version:  >=1.8
 Library
   Ghc-Options:     -threaded -O2 -Wall
   Extra-Libraries: zookeeper_mt
-  Build-Depends:   base >= 4 && < 5, bytestring >= 0.9
+  Build-Depends:   base >= 4 && < 5, bytestring >= 0.9, hslogger, unordered-containers, attoparsec, aeson, mtl
   Hs-source-dirs:  src
-  Exposed-modules: Zookeeper
+  Exposed-modules: Database.Zookeeper, Database.Zookeeper.Helper, Database.Zookeeper.Util
   Extensions:      DeriveDataTypeable
 
 Executable ZooClient
@@ -21,7 +21,7 @@ Executable ZooClient
   Extra-Libraries: zookeeper_mt
   Build-Depends:   base >= 4 && < 5, bytestring >= 0.9
   Hs-source-dirs:  src
-  Main-is:         ZooClient.hs
-  Other-modules:   Zookeeper
+  Main-is:         Database/Zookeeper/ZooClient.hs
+  Other-modules:   Database.Zookeeper
   Extensions:      DeriveDataTypeable
 
