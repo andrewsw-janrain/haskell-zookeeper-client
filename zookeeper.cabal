@@ -13,7 +13,7 @@ Library
   Extra-Libraries: zookeeper_mt
   Build-Depends:   base >= 4 && < 5, bytestring >= 0.9, hslogger, unordered-containers, attoparsec, aeson, mtl
   Hs-source-dirs:  src
-  Exposed-modules: Database.Zookeeper, Database.Zookeeper.Helper, Database.Zookeeper.Util
+  Exposed-modules: Database.Zookeeper, Database.Zookeeper.Helper, Database.Zookeeper.Util, Database.Zookeeper.Monitor
   Extensions:      DeriveDataTypeable
 
 Executable ZooClient

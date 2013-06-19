@@ -1,4 +1,4 @@
-module Monitor ( registerDataWatcher
+module Database.Zookeeper.Monitor ( registerDataWatcher
                , registerChildrenWatcher
                , registerChildrenDataWatcher
                , ZooMonitor
