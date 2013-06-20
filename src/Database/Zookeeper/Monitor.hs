@@ -52,7 +52,7 @@ data Watcher
 
 type Watchers = M.HashMap Path [Watcher]
 
-data ZooMonitor = ZooMonitor { zHandle :: ZHandle
+data ZooMonitor = ZooMonitor { zHandle :: IORef ZHandle
                              , watchers :: IORef Watchers
                              }
 
@@ -60,7 +60,8 @@ monitorInit :: String -> Int -> IO ZooMonitor
 monitorInit connStr timeout = do
   zh <- Z.init connStr Nothing timeout
   ws <- newIORef M.empty
-  let zm = ZooMonitor zh ws
+  zhRef <- newIORef zh
+  let zm = ZooMonitor zhRef ws
   Z.setWatcher zh $ Just (watcher zm)
   return zm
 
@@ -70,7 +71,7 @@ registerDataWatcher = registerDataWatcher' DataWatcher
 
 registerDataWatcher' :: (DataCallback -> Watcher) -> ZooMonitor -> Path -> DataCallback -> IO ()
 registerDataWatcher' ctor zm path fn = do
-  res <- try $ get (zHandle zm) path Watch
+  res <- try $ (\zh -> get zh path Watch) =<< readIORef (zHandle zm)
   case res of
     Right (val, _) -> do
       attempt <- try $ fn val
@@ -93,7 +94,7 @@ registerChildDataWatcher = registerDataWatcher' ChildDataWatcher
 
 registerChildrenWatcher :: ZooMonitor -> Path -> ParentCallback -> IO ()
 registerChildrenWatcher zm path fn = do
-  res <- try $ getChildren (zHandle zm) path Watch
+  res <- try $ withZooHandle zm $ \zh -> getChildren zh path Watch
   case res of
     Right children -> do
       attempt <- try $ fn (children, [])
@@ -107,7 +108,7 @@ registerChildrenWatcher zm path fn = do
 
 registerChildrenDataWatcher :: ZooMonitor -> Path -> ParentCallback -> DataCallback -> IO ()
 registerChildrenDataWatcher zm path pfn cfn = do
-  res <- try $ getChildren (zHandle zm) path Watch
+  res <- try $ withZooHandle zm $ \zh -> getChildren zh path Watch
   case res of
     Right children -> do
       attempt <- try $ pfn (children, [])
@@ -204,3 +205,9 @@ dataWatchers = map (\(DataWatcher cb) -> cb) . filter isDataWatcher
 -- get the watchers for a specific path
 pathWatchers :: ZooMonitor -> Path -> IO [Watcher]
 pathWatchers zm path = readIORef (watchers zm) >>= return . M.lookupDefault [] path
+
+------------------------------------------------------------------------
+-- perform an IO action with the zookeeper handle from the provided
+-- ZooMonitor
+withZooHandle :: ZooMonitor -> (ZHandle -> IO a) -> IO a
+withZooHandle zm action = action =<< (readIORef $ zHandle zm)
