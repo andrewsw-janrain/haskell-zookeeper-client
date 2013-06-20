@@ -1,17 +1,19 @@
 module Database.Zookeeper.Monitor ( registerDataWatcher
-               , registerChildrenWatcher
-               , registerChildrenDataWatcher
-               , ZooMonitor
-               ) where
+                                  , registerChildrenWatcher
+                                  , registerChildrenDataWatcher
+                                  , ZooMonitor
+                                  ) where
 
-import Control.Applicative    ( (<$>) )
-import Control.Exception
-import Control.Monad
-import Data.ByteString        (ByteString)
-import Data.HashMap.Strict as HashMap
-import Data.IORef
-import Data.List              ( (\\) )
-import Database.Zookeeper
+
+import           Control.Exception      (throw, try, SomeException)
+import           Control.Monad          (forM_)
+import           Data.ByteString        (ByteString)
+import qualified Data.HashMap.Strict as M
+import           Data.IORef             (atomicModifyIORef, readIORef, IORef)
+import           Data.List              ((\\))
+
+import           Database.Zookeeper
+
 
 type Path = String
 
@@ -47,7 +49,7 @@ data Watcher
      -- | a Zookeeper CreateWatcher which will be called with the path of the watched node when the node is created.
      | CreateWatcher DataCallback
 
-type Watchers = HashMap Path [Watcher]
+type Watchers = M.HashMap Path [Watcher]
 
 data ZooMonitor = ZooMonitor { zHandle :: ZHandle
                              , watchers :: IORef Watchers
@@ -65,7 +67,7 @@ registerDataWatcher' ctor zm path fn = do
       case attempt of
         Right () -> do
           atomicModifyIORef (watchers zm) $ \ws ->
-            let ws' = insertWith (++) path [ctor fn] ws
+            let ws' = M.insertWith (++) path [ctor fn] ws
             in (ws' `seq` ws', ())
         Left e -> throw (e::SomeException)
     Left e@(ErrNoNode _) -> throw e -- node does not exist, how can we watch it? die...
@@ -77,7 +79,7 @@ registerDataWatcher' ctor zm path fn = do
                         -- for that event
 
 registerChildDataWatcher :: ZooMonitor -> Path -> DataCallback -> IO ()
-registerChildDataWatcher = registerDataWatcher' ChildDataWatcher 
+registerChildDataWatcher = registerDataWatcher' ChildDataWatcher
 
 
 registerChildrenWatcher :: ZooMonitor -> Path -> ParentCallback -> IO ()
@@ -88,7 +90,7 @@ registerChildrenWatcher zm path fn = do
       attempt <- try $ fn (children, [])
       case attempt of
         Right () -> atomicModifyIORef (watchers zm) $ \ws ->
-            let ws' = insertWith (++) path [ChildrenWatcher children fn] ws
+            let ws' = M.insertWith (++) path [ChildrenWatcher children fn] ws
             in (ws' `seq` ws', ())
         Left e -> throw (e::SomeException)
     Left e@(ErrNoNode _) -> throw e
@@ -103,7 +105,7 @@ registerChildrenDataWatcher zm path pfn cfn = do
       case attempt of
         Right () -> do
           atomicModifyIORef (watchers zm) $ \ws ->
-            let ws' = insertWith (++) path [ChildrenDataWatcher children pfn cfn] ws
+            let ws' = M.insertWith (++) path [ChildrenDataWatcher children pfn cfn] ws
             in (ws' `seq` ws', ())
           forM_ children $ \child -> registerChildDataWatcher zm child cfn
         Left e -> throw (e::SomeException)
@@ -135,10 +137,10 @@ handleChanged zm zh path = do
     case res of
       Right (val, _) ->  fns >>= flip forM_ (\fn -> fn val)
       Left (ErrNoNode _) -> atomicModifyIORef (watchers zm) $ \ws ->
-        let ws' = HashMap.delete path ws
+        let ws' = M.delete path ws
         in (ws' `seq` ws', ())
       Left _ -> undefined -- what do we do here for different error types? queue this action?
-  where fns = dataWatchers . HashMap.lookupDefault [] path <$> readIORef (watchers zm)
+  where fns = return . dataWatchers =<< pathWatchers zm path
 
 
 ------------------------------------------------------------------------
@@ -154,7 +156,7 @@ handleChildren :: ZooMonitor -> ZHandle -> Path -> IO ()
 handleChildren zm zh path = do
     children <- getChildren zh path Watch
     ws >>= flip forM_ (applyWatcher children)
-  where ws = HashMap.lookupDefault [] path <$> readIORef (watchers zm)
+  where ws = pathWatchers zm path
         applyWatcher cs w =
           let childChanges known = (cs \\ known, known \\ cs)
           in case w of
@@ -171,7 +173,7 @@ handleChildren zm zh path = do
 --
 handleDeleted :: ZooMonitor -> Path -> IO ()
 handleDeleted zm path = atomicModifyIORef (watchers zm) $ \ws ->
-  let ws' = HashMap.delete path ws
+  let ws' = M.delete path ws
   in (ws' `seq` ws', ())
 
 ------------------------------------------------------------------------
@@ -184,6 +186,12 @@ handleDeleted zm path = atomicModifyIORef (watchers zm) $ \ws ->
 ------------------------------------------------------------------------
 -- extract only the data watchers from a list of watchers
 dataWatchers :: [Watcher] -> [DataCallback]
-dataWatchers [] = []
-dataWatchers ((DataWatcher cb) : ws) = cb : dataWatchers ws
-dataWatchers (_:ws) = dataWatchers ws
+dataWatchers = map (\(DataWatcher cb) -> cb) . filter isDataWatcher
+  where isDataWatcher w = case w of
+          DataWatcher _ -> True
+          _ -> False
+
+------------------------------------------------------------------------
+-- get the watchers for a specific path
+pathWatchers :: ZooMonitor -> Path -> IO [Watcher]
+pathWatchers zm path = readIORef (watchers zm) >>= return . M.lookupDefault [] path
