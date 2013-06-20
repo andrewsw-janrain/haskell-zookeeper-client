@@ -1,4 +1,5 @@
-module Database.Zookeeper.Monitor ( registerDataWatcher
+module Database.Zookeeper.Monitor ( monitorInit
+                                  , registerDataWatcher
                                   , registerChildrenWatcher
                                   , registerChildrenDataWatcher
                                   , ZooMonitor
@@ -9,10 +10,10 @@ import           Control.Exception      (throw, try, SomeException)
 import           Control.Monad          (forM_)
 import           Data.ByteString        (ByteString)
 import qualified Data.HashMap.Strict as M
-import           Data.IORef             (atomicModifyIORef, readIORef, IORef)
+import           Data.IORef             (atomicModifyIORef, newIORef, readIORef, IORef)
 import           Data.List              ((\\))
 
-import           Database.Zookeeper
+import           Database.Zookeeper  as Z
 
 
 type Path = String
@@ -55,6 +56,15 @@ data ZooMonitor = ZooMonitor { zHandle :: ZHandle
                              , watchers :: IORef Watchers
                              }
 
+monitorInit :: String -> Int -> IO ZooMonitor
+monitorInit connStr timeout = do
+  zh <- Z.init connStr Nothing timeout
+  ws <- newIORef M.empty
+  let zm = ZooMonitor zh ws
+  Z.setWatcher zh $ Just (watcher zm)
+  return zm
+
+
 registerDataWatcher :: ZooMonitor -> Path -> DataCallback -> IO ()
 registerDataWatcher = registerDataWatcher' DataWatcher
 
@@ -80,7 +90,6 @@ registerDataWatcher' ctor zm path fn = do
 
 registerChildDataWatcher :: ZooMonitor -> Path -> DataCallback -> IO ()
 registerChildDataWatcher = registerDataWatcher' ChildDataWatcher
-
 
 registerChildrenWatcher :: ZooMonitor -> Path -> ParentCallback -> IO ()
 registerChildrenWatcher zm path fn = do
@@ -118,7 +127,7 @@ watcher zm zh event Connected path =
     Changed -> handleChanged zm zh path
     Child -> handleChildren zm zh path
     Deleted -> handleDeleted zm path
-    Session -> undefined -- this means we just reconnected, run any pending actions
+    Session -> undefined -- this means we just reconnected, run any pending actions, re-set watchers
     _ -> undefined -- events we don't care about?
 watcher _ _ _ ExpiredSession _ = undefined -- reconnect...
 watcher _ _ _ Connecting _ = undefined -- wait for it...
