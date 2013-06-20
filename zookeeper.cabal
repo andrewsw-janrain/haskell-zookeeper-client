@@ -1,5 +1,5 @@
 Name:           zookeeper
-Version:        0.0.1
+Version:        0.0.1.2
 Description:    Haskell bindings for zookeeper
 License:        OtherLicense
 License-file:   LICENSE
