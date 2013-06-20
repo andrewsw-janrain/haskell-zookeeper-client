@@ -21,6 +21,7 @@ type Path = String
 
 type WatcherCallback a = a -> IO ()
 type DataCallback = WatcherCallback (Maybe ByteString)
+type ChildDataCallback = Path -> DataCallback
 type ParentCallback = WatcherCallback ([Path], [Path])
 
 data Watcher
@@ -46,7 +47,7 @@ data Watcher
      -- applied to it. All child nodes will be watched automatically,
      -- so this kind of watcher will respond to any changes in the
      -- hierarchy.
-     | ChildrenDataWatcher [Path] ParentCallback DataCallback
+     | ChildrenDataWatcher [Path] ParentCallback ChildDataCallback
 
      -- | a Zookeeper CreateWatcher which will be called with the path of the watched node when the node is created.
      | CreateWatcher DataCallback
@@ -107,7 +108,7 @@ registerChildrenWatcher zm path fn = do
     Left e@(ErrNoNode _) -> throw e
     Left _ -> undefined -- see registerDataWatcher ... we want the same thing here
 
-registerChildrenDataWatcher :: ZooMonitor -> Path -> ParentCallback -> DataCallback -> IO ()
+registerChildrenDataWatcher :: ZooMonitor -> Path -> ParentCallback -> ChildDataCallback -> IO ()
 registerChildrenDataWatcher zm path pfn cfn = do
   res <- try $ withZooHandle zm $ \zh -> getChildren zh path Watch
   case res of
@@ -118,7 +119,7 @@ registerChildrenDataWatcher zm path pfn cfn = do
           atomicModifyIORef (watchers zm) $ \ws ->
             let ws' = M.insertWith (++) path [ChildrenDataWatcher children pfn cfn] ws
             in (ws' `seq` ws', ())
-          forM_ children $ \child -> registerChildDataWatcher zm child cfn
+          forM_ children $ \child -> registerChildDataWatcher zm child (cfn child)
         Left e -> throw (e::SomeException)
     Left e@(ErrNoNode _) -> throw e
     Left _ -> undefined -- same as above
@@ -175,7 +176,7 @@ handleChildren zm zh path = do
             ChildrenDataWatcher knownChildren pfn cfn -> do
               let cs'@(newChildren, _) = childChanges knownChildren
               pfn cs'
-              forM_ newChildren $ \child -> registerDataWatcher zm child cfn
+              forM_ newChildren $ \child -> registerChildDataWatcher zm child (cfn child)
             _ -> error "impossible handleChildren -- child watch event on improper Watcher"
 
 
