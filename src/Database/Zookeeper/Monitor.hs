@@ -2,7 +2,7 @@ module Database.Zookeeper.Monitor ( monitorInit
                                   , registerDataWatcher
                                   , registerChildrenWatcher
                                   , registerChildrenDataWatcher
-                                  , ZooMonitor
+                                  , ZooMonitor (..)
                                   ) where
 
 

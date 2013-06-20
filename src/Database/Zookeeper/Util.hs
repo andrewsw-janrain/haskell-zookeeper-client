@@ -1,4 +1,10 @@
-module Database.Zookeeper.Util where
+module Database.Zookeeper.Util ( getJSON
+                               , modify
+                               , maybeCreate
+                               , maybeDelete
+                               , maybeGetJSON
+                               , write
+                               ) where
 
 import           Control.Applicative
 import           Control.Exception
@@ -33,14 +39,14 @@ maybeCreate zh path val = do
                       }
 
 --------------------------------------------------------------------------------
-readJSON :: (Monad m, FromJSON a) => String -> ByteString -> m a
-readJSON name str = case decodeJSON str of
+readJSON :: (Monad m, FromJSON a) => ByteString -> m a
+readJSON str = case decodeJSON str of
     Left msg -> err $ "failed to parse: " ++ msg
     Right val -> case fromJSON val of
         Error msg -> err $ "failed to convert from JSON: " ++ msg
         Success a -> return a
   where
-    err msg = error $ concat [ "readJSON (", name, "):", msg ]
+    err msg = error $ concat [ "readJSON: ", msg ]
 
 --------------------------------------------------------------------------------
 -- update a json value in zookeeper by applying a function to it.
@@ -48,7 +54,7 @@ modify :: (MonadIO m, FromJSON a, ToJSON a) =>
           ZHandle -> String -> (a -> m a) -> m ()
 modify zh path f = fix $ \loop -> do
     (Just str, st) <- liftIO $ get zh path NoWatch
-    a <- readJSON path str
+    a <- readJSON str
     a' <- f a
     let version = fromIntegral $ stat_version st
         str'    = encodeJSON $ toJSON a'
@@ -92,7 +98,7 @@ try_delete zh path version = do
 getJSON :: FromJSON a => ZHandle -> String -> IO a
 getJSON zh path = do
     (mStr, _) <- get zh path NoWatch
-    readJSON path $! fromMaybe (error $ "getJSON: no value in " ++ path) mStr
+    readJSON $! fromMaybe (error $ "getJSON: no value in " ++ path) mStr
 
 --------------------------------------------------------------------------------
 maybeGetJSON :: FromJSON a => ZHandle -> String -> IO (Maybe a)
