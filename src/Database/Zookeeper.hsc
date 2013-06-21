@@ -3,7 +3,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module Zookeeper (
+module Database.Zookeeper (
   init, close, setWatcher,
   recvTimeout, state, isUnrecoverable, setDebugLevel,
   create, delete, exists, get, getChildren, set,
