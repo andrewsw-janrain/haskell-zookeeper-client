@@ -84,7 +84,7 @@ registerDataWatcher' ctor zm path fn = do
             in (ws' `seq` ws', ())
         Left e -> throw (e::SomeException)
     Left e@(ErrNoNode _) -> throw e -- node does not exist, how can we watch it? die...
-    Left _ -> undefined -- certain classes of errors we want to
+    Left e -> throw e -- certain classes of errors we want to
                         -- recover from, like ErrClosing,
                         -- ErrSessionExpired, ErrConnectionLoss, we
                         -- want to try again after the session comes
@@ -106,7 +106,7 @@ registerChildrenWatcher zm path fn = do
             in (ws' `seq` ws', ())
         Left e -> throw (e::SomeException)
     Left e@(ErrNoNode _) -> throw e
-    Left _ -> undefined -- see registerDataWatcher ... we want the same thing here
+    Left e -> throw e -- see registerDataWatcher ... we want the same thing here
 
 registerChildrenDataWatcher :: ZooMonitor -> Path -> ParentCallback -> ChildDataCallback -> IO ()
 registerChildrenDataWatcher zm path pfn cfn = do
@@ -119,10 +119,10 @@ registerChildrenDataWatcher zm path pfn cfn = do
           atomicModifyIORef (watchers zm) $ \ws ->
             let ws' = M.insertWith (++) path [ChildrenDataWatcher children pfn cfn] ws
             in (ws' `seq` ws', ())
-          forM_ children $ \child -> registerChildDataWatcher zm child (cfn child)
+          forM_ children $ \child -> registerChildDataWatcher zm (path ++ '/' : child) (cfn (path ++ '/' : child))
         Left e -> throw (e::SomeException)
     Left e@(ErrNoNode _) -> throw e
-    Left _ -> undefined -- same as above
+    Left e -> throw e -- same as above
 
 watcher :: ZooMonitor -> ZHandle -> EventType -> State -> Path -> IO ()
 watcher zm zh event Connected path =
@@ -130,11 +130,11 @@ watcher zm zh event Connected path =
     Changed -> handleChanged zm zh path
     Child -> handleChildren zm zh path
     Deleted -> handleDeleted zm path
-    Session -> undefined -- this means we just reconnected, run any pending actions, re-set watchers
-    _ -> undefined -- events we don't care about?
-watcher _ _ _ ExpiredSession _ = undefined -- reconnect...
-watcher _ _ _ Connecting _ = undefined -- wait for it...
-watcher _ _ _ _ _ = undefined -- other states that we might care about?
+    Session -> return () -- this means we just reconnected, run any pending actions, re-set watchers
+    _ -> return () -- events we don't care about?
+watcher _ _ _ ExpiredSession _ = return () -- reconnect...
+watcher _ _ _ Connecting _ = return () -- wait for it...
+watcher _ _ _ _ _ = return () -- other states that we might care about?
 
 ------------------------------------------------------------------------
 -- handle a Changed event for a data watch
@@ -151,7 +151,7 @@ handleChanged zm zh path = do
       Left (ErrNoNode _) -> atomicModifyIORef (watchers zm) $ \ws ->
         let ws' = M.delete path ws
         in (ws' `seq` ws', ())
-      Left _ -> undefined -- what do we do here for different error types? queue this action?
+      Left e -> throw e -- what do we do here for different error types? queue this action?
   where fns = return . dataWatchers =<< pathWatchers zm path
 
 
@@ -176,7 +176,7 @@ handleChildren zm zh path = do
             ChildrenDataWatcher knownChildren pfn cfn -> do
               let cs'@(newChildren, _) = childChanges knownChildren
               pfn cs'
-              forM_ newChildren $ \child -> registerChildDataWatcher zm child (cfn child)
+              forM_ newChildren $ \child -> registerChildDataWatcher zm (path ++ '/' : child) (cfn (path ++ '/' : child))
             _ -> error "impossible handleChildren -- child watch event on improper Watcher"
 
 
